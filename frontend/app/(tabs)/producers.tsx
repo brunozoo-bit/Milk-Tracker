@@ -23,7 +23,7 @@ export default function ProducersScreen() {
   const { user } = useAuth();
   const router = useRouter();
 
-  const canManage = user?.role === 'admin' || user?.role === 'factory';
+  const canManage = user?.role === 'admin';
 
   useEffect(() => {
     loadProducers();

@@ -308,7 +308,7 @@ async def get_me(current_user: dict = Depends(get_current_user)):
 @api_router.post("/producers", response_model=ProducerResponse)
 async def create_producer(
     producer: ProducerCreate,
-    current_user: dict = Depends(require_roles([UserRole.ADMIN, UserRole.FACTORY]))
+    current_user: dict = Depends(require_roles([UserRole.ADMIN]))
 ):
     producer_dict = producer.dict()
     producer_dict["created_by"] = current_user["_id"]
@@ -367,7 +367,7 @@ async def get_producer(
 async def update_producer(
     producer_id: str,
     producer_update: ProducerUpdate,
-    current_user: dict = Depends(require_roles([UserRole.ADMIN, UserRole.FACTORY]))
+    current_user: dict = Depends(require_roles([UserRole.ADMIN]))
 ):
     update_data = {k: v for k, v in producer_update.dict().items() if v is not None}
     if not update_data:
@@ -411,7 +411,7 @@ async def delete_producer(
 @api_router.post("/collectors", response_model=CollectorResponse)
 async def create_collector(
     collector: CollectorCreate,
-    current_user: dict = Depends(require_roles([UserRole.ADMIN, UserRole.FACTORY]))
+    current_user: dict = Depends(require_roles([UserRole.ADMIN]))
 ):
     collector_dict = collector.dict()
     collector_dict["assigned_by"] = current_user["_id"]
@@ -445,7 +445,7 @@ async def get_collectors(current_user: dict = Depends(get_current_user)):
 @api_router.delete("/collectors/{collector_id}")
 async def delete_collector(
     collector_id: str,
-    current_user: dict = Depends(require_roles([UserRole.ADMIN, UserRole.FACTORY]))
+    current_user: dict = Depends(require_roles([UserRole.ADMIN]))
 ):
     result = await db.collectors.delete_one({"_id": ObjectId(collector_id)})
     if result.deleted_count == 0:
