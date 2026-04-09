@@ -605,7 +605,7 @@ async def update_collection(
 @api_router.delete("/collections/{collection_id}")
 async def delete_collection(
     collection_id: str,
-    current_user: dict = Depends(require_roles([UserRole.ADMIN, UserRole.FACTORY]))
+    current_user: dict = Depends(require_roles([UserRole.ADMIN]))
 ):
     result = await db.collections.delete_one({"_id": ObjectId(collection_id)})
     if result.deleted_count == 0:

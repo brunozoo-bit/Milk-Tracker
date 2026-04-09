@@ -54,11 +54,31 @@ export default function CollectionsScreen() {
     loadCollections();
   }, []);
 
+  const handleDeleteCollection = (id: string, producerName: string) => {
+    Alert.alert(
+      'Confirmar Exclusão',
+      `Deseja realmente excluir esta coleta de ${producerName}?`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Excluir',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await collectionAPI.delete(id);
+              loadCollections();
+              Alert.alert('Sucesso', 'Coleta excluída com sucesso');
+            } catch (error) {
+              Alert.alert('Erro', 'Não foi possível excluir a coleta');
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const renderCollection = ({ item }: { item: Collection }) => (
-    <TouchableOpacity
-      style={styles.card}
-      onPress={() => router.push(`/collection/${item.id}`)}
-    >
+    <View style={styles.card}>
       <View style={styles.cardHeader}>
         <View style={styles.cardHeaderLeft}>
           <Ionicons name="person" size={20} color="#4CAF50" />
@@ -88,7 +108,19 @@ export default function CollectionsScreen() {
           <Text style={styles.offlineText}>Não sincronizado</Text>
         </View>
       )}
-    </TouchableOpacity>
+      
+      {user?.role === 'admin' && (
+        <View style={styles.cardActions}>
+          <TouchableOpacity
+            style={styles.deleteButton}
+            onPress={() => handleDeleteCollection(item.id, item.producer_name)}
+          >
+            <Ionicons name="trash" size={20} color="#f44336" />
+            <Text style={styles.deleteButtonText}>Excluir</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+    </View>
   );
 
   if (isLoading) {
@@ -223,6 +255,28 @@ const styles = StyleSheet.create({
   offlineText: {
     fontSize: 12,
     color: '#FF9800',
+    fontWeight: '600',
+  },
+  cardActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#f0f0f0',
+  },
+  deleteButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8,
+    backgroundColor: '#ffebee',
+  },
+  deleteButtonText: {
+    fontSize: 14,
+    color: '#f44336',
     fontWeight: '600',
   },
   emptyContainer: {
