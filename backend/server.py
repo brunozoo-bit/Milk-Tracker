@@ -517,10 +517,24 @@ async def get_collections(
     
     collections = await db.collections.find(query).sort("created_at", -1).to_list(1000)
     
+    # Batch fetch all producers and collectors to avoid N+1 queries
+    producer_ids = list(set([ObjectId(c["producer_id"]) for c in collections]))
+    collector_ids = list(set([ObjectId(c["collector_id"]) for c in collections]))
+    
+    producers_cursor = db.producers.find({"_id": {"$in": producer_ids}})
+    collectors_cursor = db.users.find({"_id": {"$in": collector_ids}})
+    
+    producers_list = await producers_cursor.to_list(None)
+    collectors_list = await collectors_cursor.to_list(None)
+    
+    # Create lookup dictionaries
+    producers_map = {str(p["_id"]): p for p in producers_list}
+    collectors_map = {str(c["_id"]): c for c in collectors_list}
+    
     result = []
     for c in collections:
-        producer = await db.producers.find_one({"_id": ObjectId(c["producer_id"])})
-        collector = await db.users.find_one({"_id": ObjectId(c["collector_id"])})
+        producer = producers_map.get(c["producer_id"])
+        collector = collectors_map.get(str(c["collector_id"]))
         
         result.append(CollectionResponse(
             id=str(c["_id"]),
@@ -650,14 +664,28 @@ async def export_report(
     
     collections = await db.collections.find(query).sort("date", 1).to_list(10000)
     
+    # Batch fetch all producers and collectors to avoid N+1 queries
+    producer_ids = list(set([ObjectId(c["producer_id"]) for c in collections]))
+    collector_ids = list(set([ObjectId(c["collector_id"]) for c in collections]))
+    
+    producers_cursor = db.producers.find({"_id": {"$in": producer_ids}})
+    collectors_cursor = db.users.find({"_id": {"$in": collector_ids}})
+    
+    producers_list = await producers_cursor.to_list(None)
+    collectors_list = await collectors_cursor.to_list(None)
+    
+    # Create lookup dictionaries
+    producers_map = {str(p["_id"]): p for p in producers_list}
+    collectors_map = {str(c["_id"]): c for c in collectors_list}
+    
     # Create CSV
     output = io.StringIO()
     writer = csv.writer(output)
     writer.writerow(["Data", "Hora", "Dia da Semana", "Produtor", "Apelido", "Quantidade (L)", "Coletor", "Observações"])
     
     for c in collections:
-        producer = await db.producers.find_one({"_id": ObjectId(c["producer_id"])})
-        collector = await db.users.find_one({"_id": ObjectId(c["collector_id"])})
+        producer = producers_map.get(c["producer_id"])
+        collector = collectors_map.get(str(c["collector_id"]))
         
         writer.writerow([
             c["date"],
@@ -702,12 +730,18 @@ async def get_report_summary(
     total_collections = len(collections)
     avg_quantity = total_quantity / total_collections if total_collections > 0 else 0
     
+    # Batch fetch all producers to avoid N+1 queries
+    producer_ids = list(set([ObjectId(c["producer_id"]) for c in collections]))
+    producers_cursor = db.producers.find({"_id": {"$in": producer_ids}})
+    producers_list = await producers_cursor.to_list(None)
+    producers_map = {str(p["_id"]): p for p in producers_list}
+    
     # Group by producer
     by_producer = {}
     for c in collections:
         pid = c["producer_id"]
         if pid not in by_producer:
-            producer = await db.producers.find_one({"_id": ObjectId(pid)})
+            producer = producers_map.get(pid)
             by_producer[pid] = {
                 "producer_name": producer["name"] if producer else "Unknown",
                 "producer_nickname": producer["nickname"] if producer else "Unknown",
@@ -715,6 +749,7 @@ async def get_report_summary(
                 "collection_count": 0
             }
         by_producer[pid]["total_quantity"] += c["quantity"]
+        by_producer[pid]["collection_count"] += 1
         by_producer[pid]["collection_count"] += 1
     
     return {
