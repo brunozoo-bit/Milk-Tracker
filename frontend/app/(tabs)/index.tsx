@@ -55,6 +55,8 @@ export default function CollectionsScreen() {
   }, []);
 
   const handleDeleteCollection = (id: string, producerName: string) => {
+    console.log('Delete button pressed for collection:', id);
+    console.log('Current user role:', user?.role);
     Alert.alert(
       'Confirmar Exclusão',
       `Deseja realmente excluir esta coleta de ${producerName}?`,
@@ -65,11 +67,14 @@ export default function CollectionsScreen() {
           style: 'destructive',
           onPress: async () => {
             try {
+              console.log('Attempting to delete collection:', id);
               await collectionAPI.delete(id);
+              console.log('Collection deleted successfully');
               loadCollections();
               Alert.alert('Sucesso', 'Coleta excluída com sucesso');
-            } catch (error) {
-              Alert.alert('Erro', 'Não foi possível excluir a coleta');
+            } catch (error: any) {
+              console.error('Error deleting collection:', error);
+              Alert.alert('Erro', error.response?.data?.detail || 'Não foi possível excluir a coleta');
             }
           },
         },
