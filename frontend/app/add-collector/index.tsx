@@ -15,7 +15,7 @@ import {
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import { collectorAPI } from '../../../services/api';
+import { collectorAPI } from '../../services/api';
 
 export default function AddCollectorScreen() {
   const router = useRouter();

@@ -15,8 +15,8 @@ import {
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import { collectionAPI, producerAPI } from '../../../services/api';
-import { Producer } from '../../../types';
+import { collectionAPI, producerAPI } from '../../services/api';
+import { Producer } from '../../types';
 import { format } from 'date-fns';
 import { Picker } from '@react-native-picker/picker';
 
