@@ -750,7 +750,6 @@ async def get_report_summary(
             }
         by_producer[pid]["total_quantity"] += c["quantity"]
         by_producer[pid]["collection_count"] += 1
-        by_producer[pid]["collection_count"] += 1
     
     return {
         "total_quantity": total_quantity,
