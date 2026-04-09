@@ -5,6 +5,7 @@ export interface User {
   name: string;
   nickname?: string;
   photo?: string;
+  factory_code: string;
   created_at: string;
 }
 
@@ -12,6 +13,15 @@ export interface AuthResponse {
   access_token: string;
   token_type: string;
   user: User;
+}
+
+export interface Factory {
+  id: string;
+  name: string;
+  code: string;
+  admin_email: string;
+  created_at: string;
+  is_active: boolean;
 }
 
 export interface Producer {

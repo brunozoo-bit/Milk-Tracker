@@ -7,7 +7,7 @@ import os
 import logging
 from pathlib import Path
 from pydantic import BaseModel, Field, EmailStr
-from typing import List, Optional
+from typing import List, Optional, Dict
 from datetime import datetime, timedelta
 import jwt
 from passlib.context import CryptContext
@@ -15,14 +15,18 @@ from bson import ObjectId
 import io
 import csv
 from fastapi.responses import StreamingResponse
+import re
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
-# MongoDB connection
+# MongoDB connection for registry (master database)
 mongo_url = os.environ['MONGO_URL']
-client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ['DB_NAME']]
+registry_client = AsyncIOMotorClient(mongo_url)
+registry_db = registry_client['factory_registry']
+
+# Cache for tenant database connections
+tenant_db_connections: Dict[str, AsyncIOMotorClient] = {}
 
 # Password hashing
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -47,6 +51,16 @@ def serialize_doc(doc):
         doc["_id"] = str(doc["_id"])
     return doc
 
+# Helper to get tenant database
+async def get_tenant_db(factory_code: str):
+    """Get or create database connection for a specific factory"""
+    if factory_code not in tenant_db_connections:
+        client = AsyncIOMotorClient(mongo_url)
+        tenant_db_connections[factory_code] = client
+    
+    db_name = f"factory_{factory_code}"
+    return tenant_db_connections[factory_code][db_name]
+
 # ========================
 # MODELS
 # ========================
@@ -57,6 +71,21 @@ class UserRole:
     PRODUCER = "producer"
     COLLECTOR = "collector"
 
+class FactoryRegister(BaseModel):
+    name: str
+    code: str  # Unique slug/code
+    admin_name: str
+    admin_email: EmailStr
+    admin_password: str
+
+class FactoryResponse(BaseModel):
+    id: str
+    name: str
+    code: str
+    admin_email: str
+    created_at: datetime
+    is_active: bool
+
 class UserCreate(BaseModel):
     email: EmailStr
     password: str
@@ -66,6 +95,7 @@ class UserCreate(BaseModel):
     photo: Optional[str] = None
 
 class UserLogin(BaseModel):
+    factory_code: str
     email: EmailStr
     password: str
 
@@ -76,6 +106,7 @@ class UserResponse(BaseModel):
     name: str
     nickname: Optional[str] = None
     photo: Optional[str] = None
+    factory_code: str
     created_at: datetime
 
 class TokenResponse(BaseModel):
@@ -189,7 +220,9 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
         token = credentials.credentials
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         user_id: str = payload.get("sub")
-        if user_id is None:
+        factory_code: str = payload.get("factory_code")
+        
+        if user_id is None or factory_code is None:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Could not validate credentials"
@@ -205,12 +238,16 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
             detail="Could not validate credentials"
         )
     
+    # Get tenant database
+    db = await get_tenant_db(factory_code)
     user = await db.users.find_one({"_id": ObjectId(user_id)})
     if user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User not found"
         )
+    
+    user["factory_code"] = factory_code
     return serialize_doc(user)
 
 def require_roles(allowed_roles: List[str]):
@@ -224,14 +261,90 @@ def require_roles(allowed_roles: List[str]):
     return role_checker
 
 # ========================
+# FACTORY REGISTRATION
+# ========================
+
+@api_router.post("/factories/register", response_model=FactoryResponse)
+async def register_factory(factory: FactoryRegister):
+    # Validate factory code (alphanumeric and dashes only)
+    if not re.match(r'^[a-z0-9-]+$', factory.code):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Código deve conter apenas letras minúsculas, números e hífens"
+        )
+    
+    # Check if factory code already exists
+    existing_factory = await registry_db.factories.find_one({"code": factory.code})
+    if existing_factory:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Código de fábrica já está em uso"
+        )
+    
+    # Check if admin email already exists in this factory
+    existing_email = await registry_db.factories.find_one({"admin_email": factory.admin_email})
+    if existing_email:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email já está cadastrado"
+        )
+    
+    # Create factory in registry
+    factory_dict = {
+        "name": factory.name,
+        "code": factory.code,
+        "admin_email": factory.admin_email,
+        "created_at": datetime.utcnow(),
+        "is_active": True
+    }
+    
+    result = await registry_db.factories.insert_one(factory_dict)
+    
+    # Create tenant database and admin user
+    tenant_db = await get_tenant_db(factory.code)
+    
+    admin_user = {
+        "email": factory.admin_email,
+        "password": get_password_hash(factory.admin_password),
+        "role": UserRole.ADMIN,
+        "name": factory.admin_name,
+        "nickname": "Admin",
+        "photo": None,
+        "created_at": datetime.utcnow()
+    }
+    
+    await tenant_db.users.insert_one(admin_user)
+    
+    return FactoryResponse(
+        id=str(result.inserted_id),
+        name=factory.name,
+        code=factory.code,
+        admin_email=factory.admin_email,
+        created_at=factory_dict["created_at"],
+        is_active=True
+    )
+
+@api_router.get("/factories/check/{code}")
+async def check_factory_code(code: str):
+    """Check if factory code exists"""
+    factory = await registry_db.factories.find_one({"code": code})
+    return {
+        "exists": factory is not None,
+        "name": factory.get("name") if factory else None
+    }
+
+# ========================
 # AUTH ROUTES
 # ========================
 
 @api_router.post("/auth/register", response_model=UserResponse)
 async def register(
     user: UserCreate,
-    current_user: dict = Depends(require_roles([UserRole.ADMIN, UserRole.FACTORY]))
+    current_user: dict = Depends(require_roles([UserRole.ADMIN]))
 ):
+    factory_code = current_user["factory_code"]
+    db = await get_tenant_db(factory_code)
+    
     # Check if user exists
     existing_user = await db.users.find_one({"email": user.email})
     if existing_user:
@@ -252,7 +365,6 @@ async def register(
     }
     
     result = await db.users.insert_one(user_dict)
-    user_dict["_id"] = result.inserted_id
     
     return UserResponse(
         id=str(result.inserted_id),
@@ -261,19 +373,40 @@ async def register(
         name=user.name,
         nickname=user.nickname,
         photo=user.photo,
+        factory_code=factory_code,
         created_at=user_dict["created_at"]
     )
 
 @api_router.post("/auth/login", response_model=TokenResponse)
 async def login(user_login: UserLogin):
+    # Check if factory exists
+    factory = await registry_db.factories.find_one({"code": user_login.factory_code})
+    if not factory:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Fábrica não encontrada"
+        )
+    
+    if not factory.get("is_active", True):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Fábrica inativa"
+        )
+    
+    # Get tenant database
+    db = await get_tenant_db(user_login.factory_code)
+    
     user = await db.users.find_one({"email": user_login.email})
     if not user or not verify_password(user_login.password, user["password"]):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect email or password"
+            detail="Email ou senha incorretos"
         )
     
-    access_token = create_access_token(data={"sub": str(user["_id"])})
+    access_token = create_access_token(data={
+        "sub": str(user["_id"]),
+        "factory_code": user_login.factory_code
+    })
     
     return TokenResponse(
         access_token=access_token,
@@ -285,6 +418,7 @@ async def login(user_login: UserLogin):
             name=user["name"],
             nickname=user.get("nickname"),
             photo=user.get("photo"),
+            factory_code=user_login.factory_code,
             created_at=user["created_at"]
         )
     )
@@ -298,6 +432,7 @@ async def get_me(current_user: dict = Depends(get_current_user)):
         name=current_user["name"],
         nickname=current_user.get("nickname"),
         photo=current_user.get("photo"),
+        factory_code=current_user["factory_code"],
         created_at=current_user["created_at"]
     )
 
@@ -310,12 +445,13 @@ async def create_producer(
     producer: ProducerCreate,
     current_user: dict = Depends(require_roles([UserRole.ADMIN]))
 ):
+    db = await get_tenant_db(current_user["factory_code"])
+    
     producer_dict = producer.dict()
     producer_dict["created_by"] = current_user["_id"]
     producer_dict["created_at"] = datetime.utcnow()
     
     result = await db.producers.insert_one(producer_dict)
-    producer_dict["_id"] = result.inserted_id
     
     return ProducerResponse(
         id=str(result.inserted_id),
@@ -326,6 +462,8 @@ async def create_producer(
 
 @api_router.get("/producers", response_model=List[ProducerResponse])
 async def get_producers(current_user: dict = Depends(get_current_user)):
+    db = await get_tenant_db(current_user["factory_code"])
+    
     producers = await db.producers.find().to_list(1000)
     return [
         ProducerResponse(
@@ -347,6 +485,8 @@ async def get_producer(
     producer_id: str,
     current_user: dict = Depends(get_current_user)
 ):
+    db = await get_tenant_db(current_user["factory_code"])
+    
     producer = await db.producers.find_one({"_id": ObjectId(producer_id)})
     if not producer:
         raise HTTPException(status_code=404, detail="Producer not found")
@@ -369,6 +509,8 @@ async def update_producer(
     producer_update: ProducerUpdate,
     current_user: dict = Depends(require_roles([UserRole.ADMIN]))
 ):
+    db = await get_tenant_db(current_user["factory_code"])
+    
     update_data = {k: v for k, v in producer_update.dict().items() if v is not None}
     if not update_data:
         raise HTTPException(status_code=400, detail="No fields to update")
@@ -399,6 +541,8 @@ async def delete_producer(
     producer_id: str,
     current_user: dict = Depends(require_roles([UserRole.ADMIN]))
 ):
+    db = await get_tenant_db(current_user["factory_code"])
+    
     result = await db.producers.delete_one({"_id": ObjectId(producer_id)})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Producer not found")
@@ -413,6 +557,8 @@ async def create_collector(
     collector: CollectorCreate,
     current_user: dict = Depends(require_roles([UserRole.ADMIN]))
 ):
+    db = await get_tenant_db(current_user["factory_code"])
+    
     collector_dict = collector.dict()
     collector_dict["assigned_by"] = current_user["_id"]
     collector_dict["created_at"] = datetime.utcnow()
@@ -428,6 +574,8 @@ async def create_collector(
 
 @api_router.get("/collectors", response_model=List[CollectorResponse])
 async def get_collectors(current_user: dict = Depends(get_current_user)):
+    db = await get_tenant_db(current_user["factory_code"])
+    
     collectors = await db.collectors.find().to_list(1000)
     return [
         CollectorResponse(
@@ -447,6 +595,8 @@ async def delete_collector(
     collector_id: str,
     current_user: dict = Depends(require_roles([UserRole.ADMIN]))
 ):
+    db = await get_tenant_db(current_user["factory_code"])
+    
     result = await db.collectors.delete_one({"_id": ObjectId(collector_id)})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Collector not found")
@@ -461,6 +611,8 @@ async def create_collection(
     collection: CollectionCreate,
     current_user: dict = Depends(require_roles([UserRole.COLLECTOR, UserRole.ADMIN, UserRole.FACTORY]))
 ):
+    db = await get_tenant_db(current_user["factory_code"])
+    
     # Verify producer exists
     producer = await db.producers.find_one({"_id": ObjectId(collection.producer_id)})
     if not producer:
@@ -496,6 +648,8 @@ async def get_collections(
     producer_id: Optional[str] = None,
     current_user: dict = Depends(get_current_user)
 ):
+    db = await get_tenant_db(current_user["factory_code"])
+    
     query = {}
     
     # Filter by producer for producer role
@@ -559,6 +713,8 @@ async def get_collection(
     collection_id: str,
     current_user: dict = Depends(get_current_user)
 ):
+    db = await get_tenant_db(current_user["factory_code"])
+    
     collection = await db.collections.find_one({"_id": ObjectId(collection_id)})
     if not collection:
         raise HTTPException(status_code=404, detail="Collection not found")
@@ -588,6 +744,8 @@ async def update_collection(
     collection_update: CollectionUpdate,
     current_user: dict = Depends(require_roles([UserRole.COLLECTOR, UserRole.ADMIN, UserRole.FACTORY]))
 ):
+    db = await get_tenant_db(current_user["factory_code"])
+    
     update_data = {k: v for k, v in collection_update.dict().items() if v is not None}
     if not update_data:
         raise HTTPException(status_code=400, detail="No fields to update")
@@ -607,6 +765,8 @@ async def delete_collection(
     collection_id: str,
     current_user: dict = Depends(require_roles([UserRole.ADMIN]))
 ):
+    db = await get_tenant_db(current_user["factory_code"])
+    
     result = await db.collections.delete_one({"_id": ObjectId(collection_id)})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Collection not found")
@@ -621,6 +781,8 @@ async def sync_collections(
     collections: List[SyncCollectionCreate],
     current_user: dict = Depends(require_roles([UserRole.COLLECTOR, UserRole.ADMIN, UserRole.FACTORY]))
 ):
+    db = await get_tenant_db(current_user["factory_code"])
+    
     synced_ids = []
     errors = []
     
@@ -655,6 +817,8 @@ async def export_report(
     producer_id: Optional[str] = None,
     current_user: dict = Depends(require_roles([UserRole.ADMIN, UserRole.FACTORY]))
 ):
+    db = await get_tenant_db(current_user["factory_code"])
+    
     query = {
         "date": {"$gte": start_date, "$lte": end_date}
     }
@@ -712,6 +876,8 @@ async def get_report_summary(
     producer_id: Optional[str] = None,
     current_user: dict = Depends(get_current_user)
 ):
+    db = await get_tenant_db(current_user["factory_code"])
+    
     query = {
         "date": {"$gte": start_date, "$lte": end_date}
     }
@@ -778,21 +944,11 @@ logger = logging.getLogger(__name__)
 
 @app.on_event("startup")
 async def startup_event():
-    # Create default admin if not exists
-    admin = await db.users.find_one({"email": "admin@milktracker.com"})
-    if not admin:
-        admin_dict = {
-            "email": "admin@milktracker.com",
-            "password": get_password_hash("admin123"),
-            "role": UserRole.ADMIN,
-            "name": "Administrator",
-            "nickname": "Admin",
-            "photo": None,
-            "created_at": datetime.utcnow()
-        }
-        await db.users.insert_one(admin_dict)
-        logger.info("Default admin created: admin@milktracker.com / admin123")
+    logger.info("Multi-tenant milk tracking system started")
+    logger.info("Factory registry database: factory_registry")
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
-    client.close()
+    registry_client.close()
+    for client in tenant_db_connections.values():
+        client.close()
