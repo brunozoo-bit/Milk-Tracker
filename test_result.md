@@ -171,6 +171,9 @@ backend:
       - working: true
         agent: "testing"
         comment: "✅ Collection CRUD fully working. Successfully created collection with producer_id, date (2025-07-15), time (06:30), quantity (25.5L), day_of_week. Listing collections shows proper data with producer/collector names. Data validation working correctly."
+      - working: true
+        agent: "testing"
+        comment: "✅ DELETE collection endpoint fully working. Admin can successfully delete collections (returns 200 OK with success message). Authentication properly enforced (403 without token). Deleted collections return 404 on subsequent requests. Attempting to delete non-existent collections returns 404 as expected. All permission checks working correctly."
 
   - task: "Offline sync endpoint"
     implemented: true
@@ -304,3 +307,5 @@ agent_communication:
     message: "Milk collection management app MVP completed. All backend APIs implemented with JWT auth, role-based access, and full CRUD operations. Frontend has complete navigation, forms, and role-based UI. Ready for backend testing."
   - agent: "testing"
     message: "✅ BACKEND TESTING COMPLETE - All 11 backend API tests passed (100% success rate). Authentication, Producer/Collector/Collection CRUD, Offline Sync, and Reports all working perfectly. Backend is production-ready. Minor bcrypt warning in logs but doesn't affect functionality."
+  - agent: "testing"
+    message: "✅ DELETE COLLECTION ENDPOINT TESTED - Admin delete permissions working correctly. Successfully tested: 1) Admin can delete collections (200 OK), 2) Authentication required (403 without token), 3) Collections properly deleted (404 on subsequent GET), 4) Non-existent collection delete returns 404. All security and functionality checks passed."

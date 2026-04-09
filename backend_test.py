@@ -45,19 +45,25 @@ class MilkTrackerAPITester:
             
         try:
             if method.upper() == "GET":
-                response = self.session.get(url, headers=headers, params=params)
+                response = self.session.get(url, headers=headers, params=params, timeout=30)
             elif method.upper() == "POST":
-                response = self.session.post(url, headers=headers, json=data)
+                response = self.session.post(url, headers=headers, json=data, timeout=30)
             elif method.upper() == "PUT":
-                response = self.session.put(url, headers=headers, json=data)
+                response = self.session.put(url, headers=headers, json=data, timeout=30)
             elif method.upper() == "DELETE":
-                response = self.session.delete(url, headers=headers)
+                response = self.session.delete(url, headers=headers, timeout=30)
             else:
                 raise ValueError(f"Unsupported HTTP method: {method}")
                 
             return response
+        except requests.exceptions.Timeout:
+            print(f"Request timeout for {method} {url}")
+            return None
+        except requests.exceptions.ConnectionError:
+            print(f"Connection error for {method} {url}")
+            return None
         except requests.exceptions.RequestException as e:
-            print(f"Request failed: {e}")
+            print(f"Request failed for {method} {url}: {e}")
             return None
     
     def test_authentication(self):
@@ -319,6 +325,105 @@ class MilkTrackerAPITester:
                     error_msg += f", Response: {response.text}"
             self.log_test("List Collections", False, error_msg)
     
+    def test_delete_collection(self):
+        """Test delete collection functionality and permissions"""
+        print("\n=== DELETE COLLECTION TESTING ===")
+        
+        # First, ensure we have a collection to delete
+        if not self.collection_id:
+            print("⚠️  No collection ID available, creating a test collection first...")
+            
+            # Create a test collection
+            collection_data = {
+                "producer_id": self.producer_id if self.producer_id else "test_producer_id",
+                "date": "2025-01-15",
+                "time": "06:30",
+                "quantity": 25.5,
+                "day_of_week": "Wednesday",
+                "photos": []
+            }
+            
+            response = self.make_request("POST", "/collections", data=collection_data)
+            if response and response.status_code == 200:
+                data = response.json()
+                self.collection_id = data.get("_id")
+                self.log_test("Create Test Collection for Delete", True, f"Created collection: {self.collection_id}")
+            else:
+                self.log_test("Create Test Collection for Delete", False, "Failed to create test collection")
+                return
+        
+        # Test 1: Verify collection exists before deletion
+        print("🔍 Verifying collection exists before deletion...")
+        response = self.make_request("GET", f"/collections/{self.collection_id}")
+        if response and response.status_code == 200:
+            collection_data = response.json()
+            self.log_test("Verify Collection Exists", True, f"Collection found: {collection_data.get('date')} - {collection_data.get('quantity')}L")
+        else:
+            self.log_test("Verify Collection Exists", False, f"Collection not found or error: {response.status_code if response else 'No response'}")
+            return
+        
+        # Test 2: Test delete without authentication (should fail)
+        print("🔒 Testing delete without authentication...")
+        response = self.make_request("DELETE", f"/collections/{self.collection_id}", use_auth=False)
+        if response and response.status_code in [401, 403]:
+            self.log_test("Delete Without Auth", True, f"Correctly rejected (status: {response.status_code})")
+        else:
+            status = response.status_code if response else "No response"
+            self.log_test("Delete Without Auth", False, f"Should have been rejected but got status: {status}")
+        
+        # Test 3: Test delete with invalid token (should fail)
+        print("🔒 Testing delete with invalid token...")
+        old_token = self.access_token
+        self.access_token = "invalid_token_12345"
+        response = self.make_request("DELETE", f"/collections/{self.collection_id}")
+        self.access_token = old_token  # Restore valid token
+        
+        if response and response.status_code in [401, 403]:
+            self.log_test("Delete With Invalid Token", True, f"Correctly rejected (status: {response.status_code})")
+        else:
+            status = response.status_code if response else "No response"
+            self.log_test("Delete With Invalid Token", False, f"Should have been rejected but got status: {status}")
+        
+        # Test 4: Delete collection with admin token (should succeed)
+        print("🗑️  Testing delete with admin token...")
+        response = self.make_request("DELETE", f"/collections/{self.collection_id}")
+        if response and response.status_code == 200:
+            data = response.json()
+            message = data.get("message", "No message")
+            self.log_test("Delete Collection", True, f"Successfully deleted: {message}")
+        else:
+            error_msg = f"Status: {response.status_code if response else 'No response'}"
+            if response:
+                try:
+                    error_data = response.json()
+                    error_msg += f", Error: {error_data.get('detail', 'Unknown error')}"
+                except:
+                    error_msg += f", Response: {response.text}"
+            self.log_test("Delete Collection", False, error_msg)
+            return
+        
+        # Test 5: Verify collection was deleted (should return 404)
+        print("✅ Verifying collection was deleted...")
+        response = self.make_request("GET", f"/collections/{self.collection_id}")
+        if response and response.status_code == 404:
+            self.log_test("Verify Collection Deleted", True, "Collection correctly returns 404 after deletion")
+        elif response and response.status_code == 200:
+            self.log_test("Verify Collection Deleted", False, "Collection still exists after deletion - DELETE failed")
+        else:
+            status = response.status_code if response else "No response"
+            self.log_test("Verify Collection Deleted", False, f"Unexpected response when verifying deletion: {status}")
+        
+        # Test 6: Try to delete the same collection again (should return 404)
+        print("🔄 Testing delete of already deleted collection...")
+        response = self.make_request("DELETE", f"/collections/{self.collection_id}")
+        if response and response.status_code == 404:
+            self.log_test("Delete Already Deleted Collection", True, "Correctly returns 404 for non-existent collection")
+        else:
+            status = response.status_code if response else "No response"
+            self.log_test("Delete Already Deleted Collection", False, f"Expected 404 but got: {status}")
+        
+        # Clear the collection_id since it's been deleted
+        self.collection_id = None
     def test_reports(self):
         """Test reports functionality"""
         print("\n=== REPORTS TESTING ===")
@@ -460,6 +565,7 @@ class MilkTrackerAPITester:
         self.test_producer_management()
         self.test_collector_management()
         self.test_collection_recording()
+        self.test_delete_collection()
         self.test_reports()
         self.test_offline_sync()
         
