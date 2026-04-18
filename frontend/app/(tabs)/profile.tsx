@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React from 'react';
 import {
   View,
   Text,
@@ -14,42 +14,43 @@ import { useAuth } from '../../contexts/AuthContext';
 
 export default function ProfileScreen() {
   const { user, logout } = useAuth();
-  const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   const handleLogout = () => {
+    console.log('Botão sair clicado!');
+    
     Alert.alert(
       'Sair',
       'Deseja realmente sair do aplicativo?',
       [
-        { text: 'Cancelar', style: 'cancel' },
+        { 
+          text: 'Cancelar', 
+          style: 'cancel',
+          onPress: () => console.log('Logout cancelado')
+        },
         {
           text: 'Sair',
           style: 'destructive',
-          onPress: async () => {
-            try {
-              console.log('Iniciando logout...');
-              setIsLoggingOut(true);
-              
-              // Execute logout
-              await logout();
-              console.log('Logout executado');
-              
-              // Force reload to index which will redirect to login
-              router.replace('/');
-              
-              setTimeout(() => {
-                setIsLoggingOut(false);
-              }, 1000);
-            } catch (error) {
-              console.error('Erro no logout:', error);
-              setIsLoggingOut(false);
-              // Force navigation even on error
-              router.replace('/');
-            }
+          onPress: () => {
+            console.log('Usuário confirmou logout');
+            performLogout();
           },
         },
       ]
     );
+  };
+
+  const performLogout = async () => {
+    console.log('Executando logout...');
+    
+    // Limpar estado imediatamente
+    await logout();
+    
+    console.log('Estado limpo, redirecionando...');
+    
+    // Usar setTimeout para garantir que o estado foi limpo
+    setTimeout(() => {
+      router.push('/');
+    }, 100);
   };
 
   const getRoleLabel = (role: string) => {
