@@ -109,8 +109,7 @@ export default function LoginScreen() {
           <View style={styles.infoBox}>
             <Ionicons name="information-circle-outline" size={20} color="#4CAF50" />
             <Text style={styles.infoText}>
-              Credenciais padrão:{"\n"}
-              Admin: admin@milktracker.com / admin123
+              Entre com seu email e senha fornecidos pelo administrador
             </Text>
           </View>
         </View>

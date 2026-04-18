@@ -23,7 +23,11 @@ api.interceptors.request.use(async (config) => {
 // Auth API
 export const authAPI = {
   login: async (email: string, password: string): Promise<AuthResponse> => {
-    const response = await api.post('/auth/login', { email, password });
+    const response = await api.post('/auth/login', { 
+      factory_code: 'principal',
+      email, 
+      password 
+    });
     return response.data;
   },
   
