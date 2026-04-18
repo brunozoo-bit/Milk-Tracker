@@ -1,5 +1,6 @@
 import React, { createContext, useState, useContext, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { AppState } from 'react-native';
 import { User, AuthResponse } from '../types';
 import { authAPI } from '../services/api';
 
@@ -17,25 +18,34 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false); // Sempre começa false - sem sessão persistente
 
   useEffect(() => {
-    loadStoredAuth();
+    // Limpar storage ao iniciar (sempre começa deslogado)
+    clearStorage();
+    
+    // Listener para deslogar quando app for para background/fechar
+    const subscription = AppState.addEventListener('change', handleAppStateChange);
+    
+    return () => {
+      subscription.remove();
+    };
   }, []);
 
-  const loadStoredAuth = async () => {
+  const clearStorage = async () => {
     try {
-      const storedToken = await AsyncStorage.getItem('auth_token');
-      const storedUser = await AsyncStorage.getItem('user');
-      
-      if (storedToken && storedUser) {
-        setToken(storedToken);
-        setUser(JSON.parse(storedUser));
-      }
+      await AsyncStorage.clear();
+      console.log('Storage limpo - app iniciado sem sessão');
     } catch (error) {
-      console.error('Error loading stored auth:', error);
-    } finally {
-      setIsLoading(false);
+      console.error('Erro ao limpar storage:', error);
+    }
+  };
+
+  const handleAppStateChange = async (nextAppState: string) => {
+    // Quando app vai para background ou é fechado
+    if (nextAppState === 'background' || nextAppState === 'inactive') {
+      console.log('App indo para background - fazendo logout');
+      await logout();
     }
   };
 
@@ -48,9 +58,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setToken(response.access_token);
       setUser(response.user);
       
-      await AsyncStorage.setItem('auth_token', response.access_token);
-      await AsyncStorage.setItem('user', JSON.stringify(response.user));
-      console.log('Auth data saved to storage');
+      // NÃO salva no AsyncStorage - sessão apenas em memória
+      console.log('Usuário logado (sessão temporária)');
     } catch (error: any) {
       console.error('Login error:', error.response?.data || error.message);
       throw error;
@@ -60,16 +69,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const logout = async () => {
     try {
       console.log('Logging out user:', user?.email);
-      await AsyncStorage.removeItem('auth_token');
-      await AsyncStorage.removeItem('user');
-      await AsyncStorage.clear(); // Clear all storage for good measure
       
+      // Limpa estado imediatamente
       setToken(null);
       setUser(null);
+      
+      // Limpa storage
+      await AsyncStorage.clear();
+      
       console.log('Logout complete');
     } catch (error) {
       console.error('Error during logout:', error);
-      // Even if there's an error, clear the state
+      // Mesmo com erro, limpa o estado
       setToken(null);
       setUser(null);
     }
@@ -81,9 +92,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const userData = await authAPI.getMe(token);
       setUser(userData);
-      await AsyncStorage.setItem('user', JSON.stringify(userData));
     } catch (error) {
       console.error('Error refreshing user:', error);
+      // Se falhar ao refresh, desloga
+      await logout();
     }
   };
 
