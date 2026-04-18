@@ -14,8 +14,13 @@ const api = axios.create({
 // Add token to requests
 api.interceptors.request.use(async (config) => {
   const token = await AsyncStorage.getItem('auth_token');
+  console.log('Interceptor - Token exists:', !!token);
+  console.log('Interceptor - Request URL:', config.url);
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
+    console.log('Interceptor - Authorization header added');
+  } else {
+    console.warn('Interceptor - No token found in storage!');
   }
   return config;
 });
