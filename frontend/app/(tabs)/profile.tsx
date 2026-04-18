@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -8,15 +8,15 @@ import {
   Image,
   Alert,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../contexts/AuthContext';
 
 export default function ProfileScreen() {
   const { user, logout } = useAuth();
-  const router = useRouter();
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
 
-  const handleLogout = async () => {
+  const handleLogout = () => {
     Alert.alert(
       'Sair',
       'Deseja realmente sair do aplicativo?',
@@ -27,13 +27,24 @@ export default function ProfileScreen() {
           style: 'destructive',
           onPress: async () => {
             try {
+              console.log('Iniciando logout...');
+              setIsLoggingOut(true);
+              
+              // Execute logout
               await logout();
-              // Force navigation to login screen
-              router.replace('/(auth)/login');
+              console.log('Logout executado');
+              
+              // Force reload to index which will redirect to login
+              router.replace('/');
+              
+              setTimeout(() => {
+                setIsLoggingOut(false);
+              }, 1000);
             } catch (error) {
-              console.error('Logout error:', error);
-              // Even if there's an error, navigate to login
-              router.replace('/(auth)/login');
+              console.error('Erro no logout:', error);
+              setIsLoggingOut(false);
+              // Force navigation even on error
+              router.replace('/');
             }
           },
         },
