@@ -16,9 +16,11 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { collectionAPI, producerAPI } from '../../services/api';
+import { offlineQueue } from '../../services/offlineQueue';
 import { Producer } from '../../types';
 import { format } from 'date-fns';
 import { Picker } from '@react-native-picker/picker';
+import NetInfo from '@react-native-community/netinfo';
 
 export default function AddCollectionScreen() {
   const router = useRouter();
@@ -99,16 +101,49 @@ export default function AddCollectionScreen() {
     }
 
     setIsLoading(true);
+    const payload = {
+      producer_id: formData.producer_id,
+      date: formData.date,
+      time: formData.time,
+      quantity,
+      day_of_week: formData.day_of_week,
+      photo: formData.photo,
+      notes: formData.notes,
+    };
+
+    // Check connectivity
+    const netState = await NetInfo.fetch();
+    const isOnline = netState.isConnected ?? true;
+
+    if (!isOnline) {
+      await offlineQueue.addToQueue(payload);
+      setIsLoading(false);
+      Alert.alert(
+        'Salvo Offline',
+        'Você está sem conexão. A coleta foi salva localmente e poderá ser sincronizada pelo botão "Sincronizar" quando houver internet.',
+        [{ text: 'OK', onPress: () => router.back() }]
+      );
+      return;
+    }
+
     try {
-      await collectionAPI.create({
-        ...formData,
-        quantity,
-      });
+      await collectionAPI.create(payload);
       Alert.alert('Sucesso', 'Coleta registrada com sucesso', [
-        { text: 'OK', onPress: () => router.back() }
+        { text: 'OK', onPress: () => router.back() },
       ]);
     } catch (error: any) {
-      Alert.alert('Erro', error.response?.data?.detail || 'Não foi possível registrar a coleta');
+      // If network error, save to queue instead of losing data
+      const isNetworkError = !error?.response;
+      if (isNetworkError) {
+        await offlineQueue.addToQueue(payload);
+        Alert.alert(
+          'Salvo Offline',
+          'Falha na conexão. A coleta foi salva localmente e poderá ser sincronizada quando houver internet.',
+          [{ text: 'OK', onPress: () => router.back() }]
+        );
+      } else {
+        Alert.alert('Erro', error.response?.data?.detail || 'Não foi possível registrar a coleta');
+      }
     } finally {
       setIsLoading(false);
     }

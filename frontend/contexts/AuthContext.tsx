@@ -34,8 +34,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const clearStorage = async () => {
     try {
-      await AsyncStorage.clear();
-      console.log('Storage limpo - app iniciado sem sessão');
+      // Clear only auth-related keys, preserving offline queue and other data
+      await AsyncStorage.multiRemove(['auth_token', 'user']);
+      console.log('Auth storage limpo - app iniciado sem sessão');
     } catch (error) {
       console.error('Erro ao limpar storage:', error);
     }
@@ -77,8 +78,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setToken(null);
       setUser(null);
       
-      // Limpa storage
-      await AsyncStorage.clear();
+      // Limpa apenas dados de auth (preserva fila offline)
+      await AsyncStorage.multiRemove(['auth_token', 'user']);
       
       console.log('Logout complete');
     } catch (error) {

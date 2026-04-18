@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useLayoutEffect } from 'react';
 import {
   View,
   Text,
@@ -9,9 +9,10 @@ import {
   ActivityIndicator,
   Alert,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useNavigation, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { collectionAPI } from '../../services/api';
+import { offlineQueue } from '../../services/offlineQueue';
 import { Collection } from '../../types';
 import { useAuth } from '../../contexts/AuthContext';
 import NetInfo from '@react-native-community/netinfo';
@@ -21,20 +22,62 @@ export default function CollectionsScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isOnline, setIsOnline] = useState(true);
+  const [pendingCount, setPendingCount] = useState(0);
+  const [isSyncing, setIsSyncing] = useState(false);
   const { user } = useAuth();
   const router = useRouter();
+  const navigation = useNavigation();
 
   const canAddCollection = user?.role === 'collector' || user?.role === 'admin' || user?.role === 'factory';
+  const canManage = user?.role === 'admin' || user?.role === 'factory';
 
   useEffect(() => {
     loadCollections();
-    
+    loadPendingCount();
+
     const unsubscribe = NetInfo.addEventListener(state => {
       setIsOnline(state.isConnected ?? false);
     });
-    
+
     return () => unsubscribe();
   }, []);
+
+  // Refresh pending count whenever screen is focused (e.g. after returning from add-collection)
+  useFocusEffect(
+    useCallback(() => {
+      loadPendingCount();
+    }, [])
+  );
+
+  const loadPendingCount = async () => {
+    const count = await offlineQueue.count();
+    setPendingCount(count);
+  };
+
+  // Header refresh button (top right)
+  useLayoutEffect(() => {
+    if (!canManage) {
+      navigation.setOptions({ headerRight: undefined });
+      return;
+    }
+    navigation.setOptions({
+      headerRight: () => (
+        <TouchableOpacity
+          onPress={handleHeaderRefresh}
+          style={styles.headerButton}
+          accessibilityLabel="Atualizar"
+        >
+          <Ionicons name="refresh" size={24} color="#fff" />
+        </TouchableOpacity>
+      ),
+    });
+  }, [navigation, canManage, isRefreshing]);
+
+  const handleHeaderRefresh = async () => {
+    setIsRefreshing(true);
+    await loadCollections();
+    await loadPendingCount();
+  };
 
   const loadCollections = async () => {
     try {
@@ -52,7 +95,44 @@ export default function CollectionsScreen() {
   const onRefresh = useCallback(() => {
     setIsRefreshing(true);
     loadCollections();
+    loadPendingCount();
   }, []);
+
+  const handleSync = async () => {
+    if (pendingCount === 0) {
+      Alert.alert('Tudo em dia', 'Não há coletas pendentes para sincronizar.');
+      return;
+    }
+    if (!isOnline) {
+      Alert.alert(
+        'Sem conexão',
+        'Você está offline. Conecte-se à internet para sincronizar as coletas.'
+      );
+      return;
+    }
+
+    setIsSyncing(true);
+    try {
+      const result = await offlineQueue.sync();
+      await loadPendingCount();
+      await loadCollections();
+      if (result.failed === 0) {
+        Alert.alert(
+          'Sincronização Concluída',
+          `${result.success} coleta(s) enviada(s) com sucesso.`
+        );
+      } else {
+        Alert.alert(
+          'Sincronização Parcial',
+          `${result.success} enviada(s) · ${result.failed} falha(s). Tente novamente.`
+        );
+      }
+    } catch (err) {
+      Alert.alert('Erro', 'Falha ao sincronizar. Tente novamente.');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
 
   const handleDeleteCollection = (id: string, producerName: string) => {
     console.log('Delete button pressed for collection:', id);
@@ -144,7 +224,41 @@ export default function CollectionsScreen() {
           <Text style={styles.offlineBarText}>Modo Offline</Text>
         </View>
       )}
-      
+
+      {canAddCollection && (
+        <TouchableOpacity
+          style={[
+            styles.syncBar,
+            pendingCount > 0 ? styles.syncBarPending : styles.syncBarIdle,
+          ]}
+          onPress={handleSync}
+          disabled={isSyncing}
+          activeOpacity={0.8}
+        >
+          {isSyncing ? (
+            <ActivityIndicator size="small" color="#fff" />
+          ) : (
+            <Ionicons
+              name={pendingCount > 0 ? 'cloud-upload' : 'cloud-done'}
+              size={18}
+              color="#fff"
+            />
+          )}
+          <Text style={styles.syncBarText}>
+            {isSyncing
+              ? 'Sincronizando...'
+              : pendingCount > 0
+              ? `Sincronizar ${pendingCount} coleta(s) offline`
+              : 'Tudo sincronizado'}
+          </Text>
+          {pendingCount > 0 && !isSyncing && (
+            <View style={styles.syncBadge}>
+              <Text style={styles.syncBadgeText}>{pendingCount}</Text>
+            </View>
+          )}
+        </TouchableOpacity>
+      )}
+
       <FlatList
         data={collections}
         renderItem={renderCollection}
@@ -198,6 +312,44 @@ const styles = StyleSheet.create({
   offlineBarText: {
     color: '#fff',
     fontWeight: '600',
+  },
+  syncBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    gap: 8,
+  },
+  syncBarPending: {
+    backgroundColor: '#FF5722',
+  },
+  syncBarIdle: {
+    backgroundColor: '#43A047',
+  },
+  syncBarText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 14,
+  },
+  syncBadge: {
+    backgroundColor: '#fff',
+    minWidth: 22,
+    height: 22,
+    borderRadius: 11,
+    paddingHorizontal: 6,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 4,
+  },
+  syncBadgeText: {
+    color: '#FF5722',
+    fontWeight: '700',
+    fontSize: 12,
+  },
+  headerButton: {
+    marginRight: 12,
+    padding: 6,
   },
   listContainer: {
     padding: 16,
