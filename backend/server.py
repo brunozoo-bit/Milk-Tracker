@@ -199,6 +199,24 @@ class SyncCollectionCreate(BaseModel):
     notes: Optional[str] = None
     offline_id: str
 
+class PasswordResetRequest(BaseModel):
+    email: EmailStr
+    name: str
+    user_type: str  # "collector" or "producer"
+
+class PasswordResetResponse(BaseModel):
+    id: str
+    email: str
+    name: str
+    user_type: str
+    status: str  # "pending" or "completed"
+    requested_at: datetime
+    completed_at: Optional[datetime] = None
+
+class SetNewPassword(BaseModel):
+    request_id: str
+    new_password: str
+
 # ========================
 # AUTH FUNCTIONS
 # ========================
@@ -444,7 +462,7 @@ async def get_me(current_user: dict = Depends(get_current_user)):
 @api_router.post("/producers", response_model=ProducerResponse)
 async def create_producer(
     producer: ProducerCreate,
-    current_user: dict = Depends(require_roles([UserRole.ADMIN]))
+    current_user: dict = Depends(require_roles([UserRole.ADMIN, UserRole.FACTORY]))
 ):
     db = await get_tenant_db(current_user["factory_code"])
     
@@ -508,7 +526,7 @@ async def get_producer(
 async def update_producer(
     producer_id: str,
     producer_update: ProducerUpdate,
-    current_user: dict = Depends(require_roles([UserRole.ADMIN]))
+    current_user: dict = Depends(require_roles([UserRole.ADMIN, UserRole.FACTORY]))
 ):
     db = await get_tenant_db(current_user["factory_code"])
     
@@ -556,7 +574,7 @@ async def delete_producer(
 @api_router.post("/collectors", response_model=CollectorResponse)
 async def create_collector(
     collector: CollectorCreate,
-    current_user: dict = Depends(require_roles([UserRole.ADMIN]))
+    current_user: dict = Depends(require_roles([UserRole.ADMIN, UserRole.FACTORY]))
 ):
     db = await get_tenant_db(current_user["factory_code"])
     
@@ -954,6 +972,138 @@ async def get_report_summary(
         "total_collections": total_collections,
         "average_quantity": round(avg_quantity, 2),
         "by_producer": list(by_producer.values())
+    }
+
+# ========================
+# PASSWORD RESET ROUTES
+# ========================
+
+@api_router.post("/password-reset/request", response_model=PasswordResetResponse)
+async def request_password_reset(request: PasswordResetRequest):
+    """Public endpoint - anyone can request password reset"""
+    # Verificar se existe na fábrica principal por enquanto
+    factory_code = "principal"
+    db = await get_tenant_db(factory_code)
+    
+    # Verificar se o email existe
+    user = await db.users.find_one({"email": request.email})
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Email não encontrado no sistema"
+        )
+    
+    # Verificar se já existe uma solicitação pendente
+    existing_request = await db.password_reset_requests.find_one({
+        "email": request.email,
+        "status": "pending"
+    })
+    
+    if existing_request:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Já existe uma solicitação pendente para este email"
+        )
+    
+    # Criar solicitação
+    request_dict = {
+        "email": request.email,
+        "name": request.name,
+        "user_type": request.user_type,
+        "user_role": user["role"],
+        "factory_code": factory_code,
+        "status": "pending",
+        "requested_at": datetime.utcnow(),
+        "completed_at": None
+    }
+    
+    result = await db.password_reset_requests.insert_one(request_dict)
+    
+    return PasswordResetResponse(
+        id=str(result.inserted_id),
+        email=request.email,
+        name=request.name,
+        user_type=request.user_type,
+        status="pending",
+        requested_at=request_dict["requested_at"]
+    )
+
+@api_router.get("/password-reset/requests", response_model=List[PasswordResetResponse])
+async def get_password_reset_requests(
+    status_filter: Optional[str] = "pending",
+    current_user: dict = Depends(require_roles([UserRole.ADMIN, UserRole.FACTORY]))
+):
+    """Admin and Factory can view password reset requests"""
+    db = await get_tenant_db(current_user["factory_code"])
+    
+    query = {}
+    if status_filter:
+        query["status"] = status_filter
+    
+    requests = await db.password_reset_requests.find(query).sort("requested_at", -1).to_list(1000)
+    
+    return [
+        PasswordResetResponse(
+            id=str(r["_id"]),
+            email=r["email"],
+            name=r["name"],
+            user_type=r["user_type"],
+            status=r["status"],
+            requested_at=r["requested_at"],
+            completed_at=r.get("completed_at")
+        )
+        for r in requests
+    ]
+
+@api_router.post("/password-reset/set")
+async def set_new_password(
+    reset_data: SetNewPassword,
+    current_user: dict = Depends(require_roles([UserRole.ADMIN, UserRole.FACTORY]))
+):
+    """Admin and Factory can set new password for users"""
+    db = await get_tenant_db(current_user["factory_code"])
+    
+    # Buscar a solicitação
+    reset_request = await db.password_reset_requests.find_one({
+        "_id": ObjectId(reset_data.request_id)
+    })
+    
+    if not reset_request:
+        raise HTTPException(status_code=404, detail="Solicitação não encontrada")
+    
+    if reset_request["status"] != "pending":
+        raise HTTPException(status_code=400, detail="Esta solicitação já foi processada")
+    
+    # Validar senha
+    if len(reset_data.new_password) < 6:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="A senha deve ter pelo menos 6 caracteres"
+        )
+    
+    # Atualizar senha do usuário
+    result = await db.users.update_one(
+        {"email": reset_request["email"]},
+        {"$set": {"password": get_password_hash(reset_data.new_password)}}
+    )
+    
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Usuário não encontrado")
+    
+    # Marcar solicitação como concluída
+    await db.password_reset_requests.update_one(
+        {"_id": ObjectId(reset_data.request_id)},
+        {"$set": {
+            "status": "completed",
+            "completed_at": datetime.utcnow(),
+            "completed_by": current_user["_id"]
+        }}
+    )
+    
+    return {
+        "message": "Senha redefinida com sucesso",
+        "email": reset_request["email"],
+        "new_password": reset_data.new_password
     }
 
 # Include the router in the main app
