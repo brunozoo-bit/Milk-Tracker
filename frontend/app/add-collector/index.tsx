@@ -20,9 +20,11 @@ import { collectorAPI } from '../../services/api';
 export default function AddCollectorScreen() {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
     email: '',
+    password: '',
     phone: '',
     photo: '',
   });
@@ -48,17 +50,24 @@ export default function AddCollectorScreen() {
   };
 
   const handleSubmit = async () => {
-    if (!formData.name) {
-      Alert.alert('Erro', 'Nome é obrigatório');
+    if (!formData.name || !formData.email || !formData.password) {
+      Alert.alert('Erro', 'Nome, email e senha são obrigatórios');
+      return;
+    }
+
+    if (formData.password.length < 6) {
+      Alert.alert('Erro', 'A senha deve ter pelo menos 6 caracteres');
       return;
     }
 
     setIsLoading(true);
     try {
       await collectorAPI.create(formData);
-      Alert.alert('Sucesso', 'Coletor cadastrado com sucesso', [
-        { text: 'OK', onPress: () => router.back() }
-      ]);
+      Alert.alert(
+        'Sucesso', 
+        `Coletor cadastrado com sucesso!\n\nCredenciais:\nEmail: ${formData.email}\nSenha: ${formData.password}\n\nAnote e forneça ao coletor.`,
+        [{ text: 'OK', onPress: () => router.back() }]
+      );
     } catch (error: any) {
       Alert.alert('Erro', error.response?.data?.detail || 'Não foi possível cadastrar o coletor');
     } finally {
@@ -103,7 +112,7 @@ export default function AddCollectorScreen() {
           </View>
 
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>Email</Text>
+            <Text style={styles.label}>Email *</Text>
             <TextInput
               style={styles.input}
               placeholder="email@exemplo.com"
@@ -112,6 +121,32 @@ export default function AddCollectorScreen() {
               keyboardType="email-address"
               autoCapitalize="none"
             />
+          </View>
+
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Senha * (mínimo 6 caracteres)</Text>
+            <View style={styles.passwordContainer}>
+              <TextInput
+                style={styles.passwordInput}
+                placeholder="Senha para o coletor"
+                value={formData.password}
+                onChangeText={(text) => setFormData({ ...formData, password: text })}
+                secureTextEntry={!showPassword}
+              />
+              <TouchableOpacity
+                onPress={() => setShowPassword(!showPassword)}
+                style={styles.eyeIcon}
+              >
+                <Ionicons
+                  name={showPassword ? 'eye-outline' : 'eye-off-outline'}
+                  size={20}
+                  color="#666"
+                />
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.helperText}>
+              Anote a senha para fornecer ao coletor
+            </Text>
           </View>
 
           <View style={styles.inputGroup}>
@@ -217,6 +252,28 @@ const styles = StyleSheet.create({
     fontSize: 16,
     borderWidth: 1,
     borderColor: '#e0e0e0',
+  },
+  passwordContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+  },
+  passwordInput: {
+    flex: 1,
+    padding: 16,
+    fontSize: 16,
+  },
+  eyeIcon: {
+    padding: 16,
+  },
+  helperText: {
+    fontSize: 12,
+    color: '#FF9800',
+    marginTop: 4,
+    fontWeight: '600',
   },
   submitButton: {
     backgroundColor: '#4CAF50',

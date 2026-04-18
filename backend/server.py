@@ -143,7 +143,8 @@ class ProducerResponse(BaseModel):
 
 class CollectorCreate(BaseModel):
     name: str
-    email: Optional[str] = None
+    email: EmailStr  # Required for login
+    password: str  # Admin sets password for collector
     phone: Optional[str] = None
     photo: Optional[str] = None
 
@@ -559,15 +560,46 @@ async def create_collector(
 ):
     db = await get_tenant_db(current_user["factory_code"])
     
-    collector_dict = collector.dict()
-    collector_dict["assigned_by"] = current_user["_id"]
-    collector_dict["created_at"] = datetime.utcnow()
+    # Check if email already exists
+    existing_user = await db.users.find_one({"email": collector.email})
+    if existing_user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email já cadastrado"
+        )
+    
+    # Create user account for collector
+    user_dict = {
+        "email": collector.email,
+        "password": get_password_hash(collector.password),
+        "role": UserRole.COLLECTOR,
+        "name": collector.name,
+        "nickname": None,
+        "photo": collector.photo,
+        "created_at": datetime.utcnow()
+    }
+    
+    user_result = await db.users.insert_one(user_dict)
+    
+    # Create collector record
+    collector_dict = {
+        "name": collector.name,
+        "email": collector.email,
+        "phone": collector.phone,
+        "photo": collector.photo,
+        "user_id": str(user_result.inserted_id),
+        "assigned_by": current_user["_id"],
+        "created_at": datetime.utcnow()
+    }
     
     result = await db.collectors.insert_one(collector_dict)
     
     return CollectorResponse(
         id=str(result.inserted_id),
-        **collector.dict(),
+        name=collector.name,
+        email=collector.email,
+        phone=collector.phone,
+        photo=collector.photo,
         assigned_by=current_user["_id"],
         created_at=collector_dict["created_at"]
     )
