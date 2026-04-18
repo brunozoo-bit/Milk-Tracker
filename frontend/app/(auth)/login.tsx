@@ -16,6 +16,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
 
 export default function LoginScreen() {
+  const [factoryCode, setFactoryCode] = useState('principal');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -24,19 +25,19 @@ export default function LoginScreen() {
   const router = useRouter();
 
   const handleLogin = async () => {
-    if (!email || !password) {
+    if (!factoryCode || !email || !password) {
       Alert.alert('Erro', 'Por favor, preencha todos os campos');
       return;
     }
 
     setIsLoading(true);
     try {
-      await login(email, password);
+      await login(email, password, factoryCode.trim().toLowerCase());
       router.replace('/(tabs)');
     } catch (error: any) {
       Alert.alert(
         'Erro no Login',
-        error.response?.data?.detail || 'Email ou senha incorretos'
+        error.response?.data?.detail || 'Código da fábrica, email ou senha incorretos'
       );
     } finally {
       setIsLoading(false);
@@ -59,6 +60,19 @@ export default function LoginScreen() {
         </View>
 
         <View style={styles.form}>
+          <View style={styles.inputContainer}>
+            <Ionicons name="business-outline" size={20} color="#666" style={styles.inputIcon} />
+            <TextInput
+              style={styles.input}
+              placeholder="Código da Fábrica"
+              value={factoryCode}
+              onChangeText={setFactoryCode}
+              autoCapitalize="none"
+              autoCorrect={false}
+              editable={!isLoading}
+            />
+          </View>
+
           <View style={styles.inputContainer}>
             <Ionicons name="mail-outline" size={20} color="#666" style={styles.inputIcon} />
             <TextInput

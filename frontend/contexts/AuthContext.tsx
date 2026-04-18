@@ -8,7 +8,7 @@ interface AuthContextType {
   user: User | null;
   token: string | null;
   isLoading: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string, factoryCode: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
 }
@@ -50,10 +50,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const login = async (email: string, password: string) => {
+  const login = async (email: string, password: string, factoryCode: string) => {
     try {
-      console.log('Login attempt:', email);
-      const response: AuthResponse = await authAPI.login(email, password);
+      console.log('Login attempt:', email, 'factory:', factoryCode);
+      const response: AuthResponse = await authAPI.login(email, password, factoryCode);
       console.log('Login successful:', response.user.email, response.user.role);
       
       setToken(response.access_token);
