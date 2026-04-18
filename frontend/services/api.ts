@@ -138,12 +138,13 @@ export const reportAPI = {
   exportCSV: async (startDate: string, endDate: string, producerId?: string): Promise<string> => {
     const params: any = { start_date: startDate, end_date: endDate };
     if (producerId) params.producer_id = producerId;
-    
-    const response = await api.get('/reports/export', { 
+
+    const response = await api.get('/reports/export', {
       params,
-      responseType: 'blob'
+      responseType: 'text',
+      transformResponse: [(data) => data], // keep raw text
     });
-    return URL.createObjectURL(response.data);
+    return response.data as string;
   },
 };
 

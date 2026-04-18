@@ -7,13 +7,17 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Alert,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { reportAPI } from '../../services/api';
 import { format, subDays, startOfWeek, startOfMonth } from 'date-fns';
+import * as FileSystem from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
 
 export default function ReportsScreen() {
   const [isLoading, setIsLoading] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
   const [summary, setSummary] = useState<any>(null);
   const [selectedPeriod, setSelectedPeriod] = useState<'today' | 'week' | 'month'>('today');
 
@@ -54,15 +58,59 @@ export default function ReportsScreen() {
   };
 
   const handleExport = async () => {
+    if (isExporting) return;
+    setIsExporting(true);
     try {
       const { startDate, endDate } = getPeriodDates();
-      Alert.alert(
-        'Exportar Relatório',
-        'A exportação CSV estará disponível em breve',
-        [{ text: 'OK' }]
-      );
-    } catch (error) {
-      Alert.alert('Erro', 'Não foi possível exportar o relatório');
+      const csvData = await reportAPI.exportCSV(startDate, endDate);
+
+      if (!csvData || csvData.trim().length === 0) {
+        Alert.alert('Aviso', 'Nenhum dado para exportar no período selecionado.');
+        return;
+      }
+
+      const fileName = `relatorio_${startDate}_${endDate}.csv`;
+
+      if (Platform.OS === 'web') {
+        // Browser: trigger download via anchor + blob
+        const BOM = '\uFEFF'; // Excel-friendly UTF-8 BOM
+        const blob = new Blob([BOM + csvData], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.setAttribute('download', fileName);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+        Alert.alert('Sucesso', 'Relatório CSV baixado com sucesso.');
+      } else {
+        // Native (iOS/Android): save to cache and open share sheet
+        const fileUri = `${FileSystem.cacheDirectory}${fileName}`;
+        await FileSystem.writeAsStringAsync(fileUri, csvData, {
+          encoding: FileSystem.EncodingType.UTF8,
+        });
+
+        const canShare = await Sharing.isAvailableAsync();
+        if (canShare) {
+          await Sharing.shareAsync(fileUri, {
+            mimeType: 'text/csv',
+            dialogTitle: 'Compartilhar Relatório CSV',
+            UTI: 'public.comma-separated-values-text',
+          });
+        } else {
+          Alert.alert('Sucesso', `Arquivo salvo em: ${fileUri}`);
+        }
+      }
+    } catch (error: any) {
+      console.error('Export CSV error:', error);
+      const msg =
+        error?.response?.status === 403
+          ? 'Você não tem permissão para exportar relatórios.'
+          : error?.response?.data?.detail || 'Não foi possível exportar o relatório.';
+      Alert.alert('Erro', msg);
+    } finally {
+      setIsExporting(false);
     }
   };
 
@@ -87,9 +135,20 @@ export default function ReportsScreen() {
     <ScrollView style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>Relatórios</Text>
-        <TouchableOpacity style={styles.exportButton} onPress={handleExport}>
-          <Ionicons name="download" size={20} color="#fff" />
-          <Text style={styles.exportButtonText}>Exportar CSV</Text>
+        <TouchableOpacity
+          style={[styles.exportButton, isExporting && styles.exportButtonDisabled]}
+          onPress={handleExport}
+          disabled={isExporting}
+          activeOpacity={0.7}
+        >
+          {isExporting ? (
+            <ActivityIndicator color="#fff" size="small" />
+          ) : (
+            <Ionicons name="download" size={20} color="#fff" />
+          )}
+          <Text style={styles.exportButtonText}>
+            {isExporting ? 'Exportando...' : 'Exportar CSV'}
+          </Text>
         </TouchableOpacity>
       </View>
 
@@ -180,6 +239,9 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 8,
     gap: 6,
+  },
+  exportButtonDisabled: {
+    opacity: 0.6,
   },
   exportButtonText: {
     color: '#fff',
