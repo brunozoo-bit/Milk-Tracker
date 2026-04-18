@@ -15,11 +15,14 @@ import { collectorAPI } from '../../services/api';
 import { Collector } from '../../types';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../contexts/AuthContext';
+import ConfirmDialog from '../../components/ConfirmDialog';
 
 export default function CollectorsScreen() {
   const [collectors, setCollectors] = useState<Collector[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [confirmTarget, setConfirmTarget] = useState<{ id: string; name: string } | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const router = useRouter();
   const { user } = useAuth();
 
@@ -48,30 +51,27 @@ export default function CollectorsScreen() {
   }, []);
 
   const handleDelete = (id: string, name: string) => {
-    Alert.alert(
-      'Confirmar Exclusão',
-      `Deseja realmente excluir o coletor ${name}?`,
-      [
-        { text: 'Cancelar', style: 'cancel' },
+    setConfirmTarget({ id, name });
+  };
+
+  const confirmDelete = async () => {
+    if (!confirmTarget) return;
+    setIsDeleting(true);
+    try {
+      await collectorAPI.delete(confirmTarget.id);
+      const name = confirmTarget.name;
+      setConfirmTarget(null);
+      Alert.alert('Sucesso', `Coletor ${name} excluído com sucesso`, [
         {
-          text: 'Excluir',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await collectorAPI.delete(id);
-              Alert.alert('Sucesso', 'Coletor excluído com sucesso', [
-                {
-                  text: 'OK',
-                  onPress: () => router.replace('/(tabs)'),
-                },
-              ]);
-            } catch (error) {
-              Alert.alert('Erro', 'Não foi possível excluir o coletor');
-            }
-          },
+          text: 'OK',
+          onPress: () => router.replace('/(tabs)'),
         },
-      ]
-    );
+      ]);
+    } catch (error) {
+      Alert.alert('Erro', 'Não foi possível excluir o coletor');
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   const renderCollector = ({ item }: { item: Collector }) => (
@@ -153,6 +153,18 @@ export default function CollectorsScreen() {
           <Ionicons name="add" size={32} color="#fff" />
         </TouchableOpacity>
       )}
+
+      <ConfirmDialog
+        visible={!!confirmTarget}
+        destructive
+        title="Excluir Coletor?"
+        message={`Tem certeza que deseja excluir o coletor "${confirmTarget?.name ?? ''}"?`}
+        warningText="Esta ação não pode ser desfeita. O acesso do coletor ao aplicativo também será removido."
+        confirmText={isDeleting ? 'Excluindo...' : 'Sim, Excluir'}
+        cancelText="Cancelar"
+        onConfirm={confirmDelete}
+        onCancel={() => !isDeleting && setConfirmTarget(null)}
+      />
     </View>
   );
 }

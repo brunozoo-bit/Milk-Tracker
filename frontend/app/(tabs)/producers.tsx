@@ -15,11 +15,14 @@ import { Ionicons } from '@expo/vector-icons';
 import { producerAPI } from '../../services/api';
 import { Producer } from '../../types';
 import { useAuth } from '../../contexts/AuthContext';
+import ConfirmDialog from '../../components/ConfirmDialog';
 
 export default function ProducersScreen() {
   const [producers, setProducers] = useState<Producer[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [confirmTarget, setConfirmTarget] = useState<{ id: string; name: string } | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
   const { user } = useAuth();
   const router = useRouter();
 
@@ -48,30 +51,27 @@ export default function ProducersScreen() {
   }, []);
 
   const handleDelete = (id: string, name: string) => {
-    Alert.alert(
-      'Confirmar Exclusão',
-      `Deseja realmente excluir o produtor ${name}?`,
-      [
-        { text: 'Cancelar', style: 'cancel' },
+    setConfirmTarget({ id, name });
+  };
+
+  const confirmDelete = async () => {
+    if (!confirmTarget) return;
+    setIsDeleting(true);
+    try {
+      await producerAPI.delete(confirmTarget.id);
+      const name = confirmTarget.name;
+      setConfirmTarget(null);
+      Alert.alert('Sucesso', `Produtor ${name} excluído com sucesso`, [
         {
-          text: 'Excluir',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await producerAPI.delete(id);
-              Alert.alert('Sucesso', 'Produtor excluído com sucesso', [
-                {
-                  text: 'OK',
-                  onPress: () => router.replace('/(tabs)'),
-                },
-              ]);
-            } catch (error) {
-              Alert.alert('Erro', 'Não foi possível excluir o produtor');
-            }
-          },
+          text: 'OK',
+          onPress: () => router.replace('/(tabs)'),
         },
-      ]
-    );
+      ]);
+    } catch (error) {
+      Alert.alert('Erro', 'Não foi possível excluir o produtor');
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   const renderProducer = ({ item }: { item: Producer }) => (
@@ -160,6 +160,18 @@ export default function ProducersScreen() {
           <Ionicons name="add" size={32} color="#fff" />
         </TouchableOpacity>
       )}
+
+      <ConfirmDialog
+        visible={!!confirmTarget}
+        destructive
+        title="Excluir Produtor?"
+        message={`Tem certeza que deseja excluir o produtor "${confirmTarget?.name ?? ''}"?`}
+        warningText="Esta ação não pode ser desfeita. Todos os dados vinculados serão removidos."
+        confirmText={isDeleting ? 'Excluindo...' : 'Sim, Excluir'}
+        cancelText="Cancelar"
+        onConfirm={confirmDelete}
+        onCancel={() => !isDeleting && setConfirmTarget(null)}
+      />
     </View>
   );
 }
