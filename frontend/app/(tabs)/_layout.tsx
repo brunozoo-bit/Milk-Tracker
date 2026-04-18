@@ -4,7 +4,8 @@ import { useAuth } from '../../contexts/AuthContext';
 
 export default function TabsLayout() {
   const { user } = useAuth();
-  const isAdmin = user?.role === 'admin' || user?.role === 'factory';
+  const isAdmin = user?.role === 'admin';
+  const isFactory = user?.role === 'factory';
   const isCollector = user?.role === 'collector';
   const isProducer = user?.role === 'producer';
 
@@ -37,7 +38,7 @@ export default function TabsLayout() {
         }}
       />
       
-      {(isAdmin || isCollector) && (
+      {(isAdmin || isFactory) && (
         <Tabs.Screen
           name="producers"
           options={{
@@ -61,7 +62,7 @@ export default function TabsLayout() {
         />
       )}
       
-      {(isAdmin || user?.role === 'factory') && (
+      {(isAdmin || isFactory) && (
         <Tabs.Screen
           name="reports"
           options={{
