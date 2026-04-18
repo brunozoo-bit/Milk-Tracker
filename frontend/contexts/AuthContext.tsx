@@ -58,7 +58,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setToken(response.access_token);
       setUser(response.user);
       
-      // NÃO salva no AsyncStorage - sessão apenas em memória
+      // Salvar no AsyncStorage temporariamente para o interceptor usar
+      await AsyncStorage.setItem('auth_token', response.access_token);
+      await AsyncStorage.setItem('user', JSON.stringify(response.user));
+      
       console.log('Usuário logado (sessão temporária)');
     } catch (error: any) {
       console.error('Login error:', error.response?.data || error.message);
