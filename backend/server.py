@@ -117,7 +117,8 @@ class TokenResponse(BaseModel):
 class ProducerCreate(BaseModel):
     name: str
     nickname: str
-    email: Optional[str] = None
+    email: EmailStr  # Required for login
+    password: str  # Admin sets password for producer
     phone: Optional[str] = None
     photo: Optional[str] = None
     address: Optional[str] = None
@@ -466,15 +467,50 @@ async def create_producer(
 ):
     db = await get_tenant_db(current_user["factory_code"])
     
-    producer_dict = producer.dict()
-    producer_dict["created_by"] = current_user["_id"]
-    producer_dict["created_at"] = datetime.utcnow()
+    # Check if email already exists
+    existing_user = await db.users.find_one({"email": producer.email})
+    if existing_user:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Email já cadastrado"
+        )
+    
+    # Create user account for producer
+    user_dict = {
+        "email": producer.email,
+        "password": get_password_hash(producer.password),
+        "role": UserRole.PRODUCER,
+        "name": producer.name,
+        "nickname": producer.nickname,
+        "photo": producer.photo,
+        "created_at": datetime.utcnow()
+    }
+    
+    user_result = await db.users.insert_one(user_dict)
+    
+    # Create producer record
+    producer_dict = {
+        "name": producer.name,
+        "nickname": producer.nickname,
+        "email": producer.email,
+        "phone": producer.phone,
+        "photo": producer.photo,
+        "address": producer.address,
+        "user_id": str(user_result.inserted_id),
+        "created_by": current_user["_id"],
+        "created_at": datetime.utcnow()
+    }
     
     result = await db.producers.insert_one(producer_dict)
     
     return ProducerResponse(
         id=str(result.inserted_id),
-        **producer.dict(),
+        name=producer.name,
+        nickname=producer.nickname,
+        email=producer.email,
+        phone=producer.phone,
+        photo=producer.photo,
+        address=producer.address,
         created_by=current_user["_id"],
         created_at=producer_dict["created_at"]
     )
