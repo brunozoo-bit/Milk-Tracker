@@ -16,7 +16,7 @@ export default function ProfileScreen() {
   const { user, logout } = useAuth();
   const router = useRouter();
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     Alert.alert(
       'Sair',
       'Deseja realmente sair do aplicativo?',
@@ -26,8 +26,15 @@ export default function ProfileScreen() {
           text: 'Sair',
           style: 'destructive',
           onPress: async () => {
-            await logout();
-            router.replace('/(auth)/login');
+            try {
+              await logout();
+              // Force navigation to login screen
+              router.replace('/(auth)/login');
+            } catch (error) {
+              console.error('Logout error:', error);
+              // Even if there's an error, navigate to login
+              router.replace('/(auth)/login');
+            }
           },
         },
       ]

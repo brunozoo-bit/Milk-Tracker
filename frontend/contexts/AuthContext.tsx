@@ -41,27 +41,37 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const login = async (email: string, password: string) => {
     try {
+      console.log('Login attempt:', email);
       const response: AuthResponse = await authAPI.login(email, password);
+      console.log('Login successful:', response.user.email, response.user.role);
       
       setToken(response.access_token);
       setUser(response.user);
       
       await AsyncStorage.setItem('auth_token', response.access_token);
       await AsyncStorage.setItem('user', JSON.stringify(response.user));
-    } catch (error) {
+      console.log('Auth data saved to storage');
+    } catch (error: any) {
+      console.error('Login error:', error.response?.data || error.message);
       throw error;
     }
   };
 
   const logout = async () => {
     try {
+      console.log('Logging out user:', user?.email);
       await AsyncStorage.removeItem('auth_token');
       await AsyncStorage.removeItem('user');
+      await AsyncStorage.clear(); // Clear all storage for good measure
       
       setToken(null);
       setUser(null);
+      console.log('Logout complete');
     } catch (error) {
       console.error('Error during logout:', error);
+      // Even if there's an error, clear the state
+      setToken(null);
+      setUser(null);
     }
   };
 
