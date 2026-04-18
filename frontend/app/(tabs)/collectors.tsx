@@ -14,12 +14,16 @@ import { Ionicons } from '@expo/vector-icons';
 import { collectorAPI } from '../../services/api';
 import { Collector } from '../../types';
 import { useRouter } from 'expo-router';
+import { useAuth } from '../../contexts/AuthContext';
 
 export default function CollectorsScreen() {
   const [collectors, setCollectors] = useState<Collector[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const router = useRouter();
+  const { user } = useAuth();
+
+  const canManage = user?.role === 'admin' || user?.role === 'factory';
 
   useEffect(() => {
     loadCollectors();
@@ -55,8 +59,12 @@ export default function CollectorsScreen() {
           onPress: async () => {
             try {
               await collectorAPI.delete(id);
-              loadCollectors();
-              Alert.alert('Sucesso', 'Coletor excluído com sucesso');
+              Alert.alert('Sucesso', 'Coletor excluído com sucesso', [
+                {
+                  text: 'OK',
+                  onPress: () => router.replace('/(tabs)'),
+                },
+              ]);
             } catch (error) {
               Alert.alert('Erro', 'Não foi possível excluir o coletor');
             }
@@ -94,14 +102,16 @@ export default function CollectorsScreen() {
         </View>
       </View>
       
-      <View style={styles.actions}>
-        <TouchableOpacity
-          style={styles.actionButton}
-          onPress={() => handleDelete(item.id, item.name)}
-        >
-          <Ionicons name="trash" size={20} color="#f44336" />
-        </TouchableOpacity>
-      </View>
+      {canManage && (
+        <View style={styles.actions}>
+          <TouchableOpacity
+            style={styles.actionButton}
+            onPress={() => handleDelete(item.id, item.name)}
+          >
+            <Ionicons name="trash" size={20} color="#f44336" />
+          </TouchableOpacity>
+        </View>
+      )}
     </View>
   );
 
@@ -135,12 +145,14 @@ export default function CollectorsScreen() {
         }
       />
       
-      <TouchableOpacity
-        style={styles.fab}
-        onPress={() => router.push('/add-collector')}
-      >
-        <Ionicons name="add" size={32} color="#fff" />
-      </TouchableOpacity>
+      {canManage && (
+        <TouchableOpacity
+          style={styles.fab}
+          onPress={() => router.push('/add-collector')}
+        >
+          <Ionicons name="add" size={32} color="#fff" />
+        </TouchableOpacity>
+      )}
     </View>
   );
 }

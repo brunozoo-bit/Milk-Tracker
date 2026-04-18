@@ -594,7 +594,7 @@ async def update_producer(
 @api_router.delete("/producers/{producer_id}")
 async def delete_producer(
     producer_id: str,
-    current_user: dict = Depends(require_roles([UserRole.ADMIN]))
+    current_user: dict = Depends(require_roles([UserRole.ADMIN, UserRole.FACTORY]))
 ):
     db = await get_tenant_db(current_user["factory_code"])
     
@@ -679,7 +679,7 @@ async def get_collectors(current_user: dict = Depends(get_current_user)):
 @api_router.delete("/collectors/{collector_id}")
 async def delete_collector(
     collector_id: str,
-    current_user: dict = Depends(require_roles([UserRole.ADMIN]))
+    current_user: dict = Depends(require_roles([UserRole.ADMIN, UserRole.FACTORY]))
 ):
     db = await get_tenant_db(current_user["factory_code"])
     

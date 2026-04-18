@@ -68,7 +68,7 @@ export default function AddProducerScreen() {
       Alert.alert(
         'Sucesso',
         `Produtor cadastrado com sucesso!\n\nCredenciais:\nEmail: ${formData.email}\nSenha: ${formData.password}\n\nAnote e forneça ao produtor.`,
-        [{ text: 'OK', onPress: () => router.back() }]
+        [{ text: 'OK', onPress: () => router.replace('/(tabs)') }]
       );
     } catch (error: any) {
       Alert.alert('Erro', error.response?.data?.detail || 'Não foi possível cadastrar o produtor');

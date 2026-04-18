@@ -141,6 +141,9 @@ backend:
       - working: true
         agent: "testing"
         comment: "✅ Producer CRUD fully working. Successfully created producer 'João Silva' with all fields (name, nickname, email, phone, address), listing producers works correctly, proper ID generation and data persistence."
+      - working: true
+        agent: "testing"
+        comment: "✅ DELETE /api/producers/{id} RBAC update verified. Admin can DELETE → 200 OK. Factory role user (created via POST /api/auth/register with role=factory) can DELETE → 200 OK. Collector role → 403 Forbidden. Producer role → 403 Forbidden. Unauthenticated request → 403 (Not authenticated). All 23 backend assertions passed."
 
   - task: "Collector CRUD APIs"
     implemented: true
@@ -156,6 +159,9 @@ backend:
       - working: true
         agent: "testing"
         comment: "✅ Collector CRUD fully working. Successfully created collector 'Maria Santos' with phone and email, listing collectors works correctly, proper role-based access control enforced."
+      - working: true
+        agent: "testing"
+        comment: "✅ DELETE /api/collectors/{id} RBAC update verified. Admin can DELETE → 200 OK. Factory role user can DELETE → 200 OK. Collector role → 403 Forbidden. Producer role → 403 Forbidden. Unauthenticated request → 403 (Not authenticated). All checks passed via /app/backend_test.py."
 
   - task: "Collection CRUD APIs"
     implemented: true
@@ -309,3 +315,7 @@ agent_communication:
     message: "✅ BACKEND TESTING COMPLETE - All 11 backend API tests passed (100% success rate). Authentication, Producer/Collector/Collection CRUD, Offline Sync, and Reports all working perfectly. Backend is production-ready. Minor bcrypt warning in logs but doesn't affect functionality."
   - agent: "testing"
     message: "✅ DELETE COLLECTION ENDPOINT TESTED - Admin delete permissions working correctly. Successfully tested: 1) Admin can delete collections (200 OK), 2) Authentication required (403 without token), 3) Collections properly deleted (404 on subsequent GET), 4) Non-existent collection delete returns 404. All security and functionality checks passed."
+  - agent: "main"
+    message: "Updated DELETE /producers/{id} and DELETE /collectors/{id} to allow BOTH admin and factory roles. Frontend: collectors.tsx now restricts delete button and add FAB to admin/factory only (canManage). Both producers.tsx and collectors.tsx now redirect to home tab (/(tabs)) after successful deletion. Please test: (1) admin can DELETE /api/producers/{id} and /api/collectors/{id} returning 200, (2) factory role can DELETE both returning 200, (3) collector and producer roles are 403 forbidden on these endpoints."
+  - agent: "testing"
+    message: "✅ DELETE RBAC UPDATE VERIFIED (23/23 passed). /app/backend_test.py now covers the new admin+factory permission for DELETE /api/producers/{id} and DELETE /api/collectors/{id}. Results: admin delete → 200, factory delete → 200, collector delete → 403, producer delete → 403, unauthenticated → 403 (Not authenticated). Admin-created factory user via POST /api/auth/register with role='factory' works as expected. No regressions detected. Backend is ready."

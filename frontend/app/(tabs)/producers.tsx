@@ -59,8 +59,12 @@ export default function ProducersScreen() {
           onPress: async () => {
             try {
               await producerAPI.delete(id);
-              loadProducers();
-              Alert.alert('Sucesso', 'Produtor excluído com sucesso');
+              Alert.alert('Sucesso', 'Produtor excluído com sucesso', [
+                {
+                  text: 'OK',
+                  onPress: () => router.replace('/(tabs)'),
+                },
+              ]);
             } catch (error) {
               Alert.alert('Erro', 'Não foi possível excluir o produtor');
             }
